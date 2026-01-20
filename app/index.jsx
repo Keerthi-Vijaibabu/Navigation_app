@@ -8,6 +8,7 @@ import {
   useWindowDimensions,
   ScrollView,
 } from "react-native";
+import React, { useEffect } from "react";
 import { Ionicons, MaterialIcons } from "@expo/vector-icons";
 import { ReactNativeZoomableView } from "@openspacelabs/react-native-zoomable-view";
 import Svg, { Path, Circle } from "react-native-svg";
@@ -18,6 +19,22 @@ const Home = () => {
   // Card width responsive
   const cardW = Math.min(width - 48, 520);
   const cardH = cardW * 0.78; // tweak to match your image aspect
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch("http://192.168.1.38:8000/hello_world", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+        });
+        const data = await res.json();
+        console.log(data);
+      } catch (e) {
+        console.log("fetch failed", e);
+      }
+    })();
+  }, []);
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <View>
