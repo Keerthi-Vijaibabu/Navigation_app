@@ -12,10 +12,13 @@
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
     "@openspacelabs/react-native-zoomable-view": "^2.4.2",
+    "@react-native-community/cli": "latest",
     "expo": "~54.0.31",
     "expo-constants": "~18.0.13",
     "expo-linking": "~8.0.11",
+    "expo-location": "^19.0.8",
     "expo-router": "~6.0.21",
+    "expo-sensors": "^15.0.8",
     "expo-status-bar": "~3.0.9",
     "lodash": "^4.17.21",
     "react": "19.1.0",
@@ -26,5 +29,8 @@
     "react-native-svg": "15.12.1",
     "react-native-zoomable-view": "^0.3.1"
   },
-  "private": true
+  "private": true,
+  "devDependencies": {
+    "@react-native/metro-config": "^0.83.1"
+  }
 }
