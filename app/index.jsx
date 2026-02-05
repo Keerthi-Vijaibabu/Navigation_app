@@ -23,15 +23,12 @@ const Home = () => {
   const [mag, setMag] = useState({ x: null, y: null, z: null, ts: null });
   const [gps, setGps] = useState({ lat: null, lon: null, ts: null });
 
-  // marker in normalized coords (0..1)
-  const [marker, setMarker] = useState(null); // {x:0..1, y:0..1}
+  const [marker, setMarker] = useState(null);
 
   const [room, setRoom] = useState("");
 
-  // Track the rendered size of the displayed image (important for correct marker placement)
   const [imgLayout, setImgLayout] = useState({ w: 0, h: 0 });
 
-  // ---- Refs to avoid interval resetting ----
   const inFlight = useRef(false);
   const magRef = useRef(mag);
   const gpsRef = useRef(gps);
@@ -49,7 +46,6 @@ const Home = () => {
     roomRef.current = room;
   }, [room]);
 
-  // ---- Magnetometer + Location watchers ----
   useEffect(() => {
     let magSub;
     let locSub;
@@ -61,7 +57,7 @@ const Home = () => {
       setLocPerm(perm.status === "granted");
       if (perm.status !== "granted") return;
 
-      // Location updates (better than calling getCurrentPosition every 2s)
+      // Location updates
       locSub = await Location.watchPositionAsync(
         {
           accuracy: Location.Accuracy.Balanced,
@@ -105,7 +101,6 @@ const Home = () => {
       const gpsNow = gpsRef.current;
       const roomNow = roomRef.current;
 
-      // debug tick so you know interval is running
       console.log("TICK", {
         mag: { x: magNow.x, y: magNow.y, z: magNow.z },
         gps: { lat: gpsNow.lat, lon: gpsNow.lon },
@@ -132,23 +127,32 @@ const Home = () => {
           gps: { lat: gpsNow.lat, lon: gpsNow.lon, ts: gpsNow.ts },
         };
 
-        const res = await fetch("http://192.168.1.35:8000/predict", {
+        const res = await fetch("http://10.46.26.13:8000/predict", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
 
-        const data = await res.json(); // parse once
+        const data = await res.json();
         console.log("predict response:", res.status, data);
 
-        // EXPECT: data = { x: 0..1, y: 0..1 }  (normalized)
         if (
           res.ok &&
           typeof data?.x === "number" &&
           typeof data?.y === "number"
         ) {
-          const x = Math.max(0, Math.min(1, data.x));
-          const y = Math.max(0, Math.min(1, data.y));
+          const imgSrc = Image.resolveAssetSource(
+            require("../assets/ground_floor.png"),
+          );
+          const ORIGINAL_W = imgSrc.width;
+          const ORIGINAL_H = imgSrc.height;
+
+          const scaleX = imgLayout.w / ORIGINAL_W;
+          const scaleY = imgLayout.h / ORIGINAL_H;
+
+          const x = data.x * scaleX;
+          const y = data.y * scaleY;
+
           setMarker({ x, y });
         }
       } catch (e) {
@@ -161,12 +165,11 @@ const Home = () => {
     return () => clearInterval(id);
   }, [locPerm]);
 
-  // Convert normalized marker to pixel coords in the rendered image
   const markerPx = useMemo(() => {
     if (!marker || imgLayout.w === 0 || imgLayout.h === 0) return null;
     return {
-      x: marker.x * imgLayout.w,
-      y: marker.y * imgLayout.h,
+      x: marker.x,
+      y: marker.y,
     };
   }, [marker, imgLayout]);
 
