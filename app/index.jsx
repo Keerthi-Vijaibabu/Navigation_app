@@ -150,9 +150,14 @@ const Home = () => {
           const ORIGINAL_W = imgSrc.width;
           const ORIGINAL_H = imgSrc.height;
 
-          const scaleX = imgLayout.w / ORIGINAL_W;
-          const scaleY = imgLayout.h / ORIGINAL_H;
+          // const scaleX = imgLayout.w / ORIGINAL_W;
+          // const scaleY = imgLayout.h / ORIGINAL_H;
 
+          const DISPLAY_W = 340;
+          const DISPLAY_H = 500;
+
+          const scaleX = DISPLAY_W / ORIGINAL_W;
+          const scaleY = DISPLAY_H / ORIGINAL_H;
           const x = data.x * scaleX;
           const y = data.y * scaleY;
 
@@ -212,11 +217,35 @@ const Home = () => {
                     setImgLayout({ w: width, h: height });
                   }}
                 >
-                  <Image
-                    source={require("../assets/ground_floor.png")}
-                    style={styles.mapImage}
-                    resizeMode="contain"
-                  />
+                  <ReactNativeZoomableView
+                    maxZoom={3}
+                    minZoom={1}
+                    zoomStep={0.5}
+                    initialZoom={1}
+                  >
+                    <View style={{ width: 340, height: 500 }}>
+                      <Image
+                        source={require("../assets/ground_floor.png")}
+                        style={{ width: 340, height: 500 }}
+                        resizeMode="stretch" // IMPORTANT (see note below)
+                      />
+
+                      {marker && (
+                        <View
+                          pointerEvents="none"
+                          style={{
+                            position: "absolute",
+                            left: marker.x - 10,
+                            top: marker.y - 10,
+                            width: 20,
+                            height: 20,
+                            borderRadius: 10,
+                            backgroundColor: "red",
+                          }}
+                        />
+                      )}
+                    </View>
+                  </ReactNativeZoomableView>
 
                   {/* Overlay marker */}
                   {markerPx && (
