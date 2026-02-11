@@ -127,11 +127,14 @@ const Home = () => {
           gps: { lat: gpsNow.lat, lon: gpsNow.lon, ts: gpsNow.ts },
         };
 
-        const res = await fetch("http://10.46.26.13:8000/predict", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
+        const res = await fetch(
+          "https://sdc2.psgitech.ac.in/yuktanav/predict",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          },
+        );
 
         const data = await res.json();
         console.log("predict response:", res.status, data);
