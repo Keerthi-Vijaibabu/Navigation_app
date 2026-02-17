@@ -5,34 +5,77 @@ import {
   SafeAreaView,
   Pressable,
   Image,
-  useWindowDimensions,
   ScrollView,
   TextInput,
 } from "react-native";
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import { ReactNativeZoomableView } from "@openspacelabs/react-native-zoomable-view";
-import Svg, { Circle } from "react-native-svg";
 import { Magnetometer } from "expo-sensors";
 import * as Location from "expo-location";
+import { Picker } from "@react-native-picker/picker";
 
-const Home = () => {
-  const { width } = useWindowDimensions();
+const DISPLAY_W = 340;
+const DISPLAY_H = 500;
 
+const FLOORS = [
+  {
+    label: "Ground Floor",
+    value: 0,
+    img: require("../assets/ground_floor.png"),
+  },
+  { label: "1st Floor", value: 1, img: require("../assets/first_floor.png") },
+  { label: "2nd Floor", value: 2, img: require("../assets/second_floor.png") },
+  { label: "3rd Floor", value: 3, img: require("../assets/third_floor.png") },
+];
+
+export default function Home() {
   const [locPerm, setLocPerm] = useState(false);
   const [mag, setMag] = useState({ x: null, y: null, z: null, ts: null });
   const [gps, setGps] = useState({ lat: null, lon: null, ts: null });
 
+  const [room, setRoom] = useState("");
+  const [floor, setFloor] = useState(null);
+
   const [marker, setMarker] = useState(null);
 
-  const [room, setRoom] = useState("");
+  const [path, setPath] = useState(null); //meghs
+  const [goal, setGoal] = useState(null); //meghs
+  const [phase, setPhase] = useState(null); // meghs
+  const [targetFloor, setTargetFloor] = useState(null); //meghs
 
-  const [imgLayout, setImgLayout] = useState({ w: 0, h: 0 });
+  const [event, setevent] = useState();
 
   const inFlight = useRef(false);
+
   const magRef = useRef(mag);
   const gpsRef = useRef(gps);
   const roomRef = useRef(room);
+  const floorRef = useRef(floor);
+
+  const today = new Date().toISOString().split("T")[0];
+
+  const EVENTS_BY_DATE = {
+    "2026-02-17": [
+      { label: "The MERN Playbook", value: "The MERN Playbook" },
+      {
+        label: "Game Development with Godot",
+        value: "Game Development with Godot",
+      },
+      { label: "Mind Heist", value: "Mind Heist" },
+      { label: "Doomsday:Protocol", value: "Doomsday:Protocol" },
+      { label: "Pixel Paradox", value: "Pixel Paradox" },
+    ],
+
+    "2026-02-18": [
+      { label: "Flutter Fast", value: "Flutter Fast" },
+      { label: "GenAI Systems", value: "GenAI Systems" },
+      { label: "Design and Decode", value: "Design and Decode" },
+      { label: "CrackNCode", value: "CrackNCode" },
+    ],
+  };
+
+  const todaysEvents = EVENTS_BY_DATE[today] ?? [];
 
   useEffect(() => {
     magRef.current = mag;
@@ -47,6 +90,23 @@ const Home = () => {
   }, [room]);
 
   useEffect(() => {
+    floorRef.current = floor;
+  }, [floor]);
+
+  // Optional: reset marker when floor changes
+  useEffect(() => {
+    setMarker(null);
+  }, [floor]);
+
+  useEffect(() => {
+    // meghs
+    if (floor === targetFloor) {
+      setPhase("room");
+    }
+  }, [floor]);
+
+  // --- Sensors setup ---
+  useEffect(() => {
     let magSub;
     let locSub;
 
@@ -54,10 +114,10 @@ const Home = () => {
       const perm = await Location.requestForegroundPermissionsAsync();
       console.log("Location permission:", perm.status);
 
-      setLocPerm(perm.status === "granted");
-      if (perm.status !== "granted") return;
+      const granted = perm.status === "granted";
+      setLocPerm(granted);
+      if (!granted) return;
 
-      // Location updates
       locSub = await Location.watchPositionAsync(
         {
           accuracy: Location.Accuracy.Balanced,
@@ -65,22 +125,17 @@ const Home = () => {
           distanceInterval: 0,
         },
         (pos) => {
-          const nextGps = {
+          setGps({
             lat: pos.coords.latitude,
             lon: pos.coords.longitude,
             ts: Date.now(),
-          };
-          // console.log("GPS:", nextGps);
-          setGps(nextGps);
+          });
         },
       );
 
-      // Magnetometer
       Magnetometer.setUpdateInterval(100);
       magSub = Magnetometer.addListener((data) => {
-        const nextMag = { ...data, ts: Date.now() };
-        // console.log("MAG:", nextMag);
-        setMag(nextMag);
+        setMag({ ...data, ts: Date.now() });
       });
     })();
 
@@ -90,7 +145,17 @@ const Home = () => {
     };
   }, []);
 
-  // ---- Send to backend every 2 seconds (interval runs ONCE) ----
+  const handleFloorChange = (newFloor) => {
+    setFloor(newFloor);
+
+    // clear stale navigation state
+    setMarker(null);
+    setPath(null);
+    setGoal(null);
+    setPhase(null);
+    setTargetFloor(null);
+  };
+  // --- Send to backend every 2 seconds ---
   useEffect(() => {
     if (!locPerm) return;
 
@@ -100,16 +165,13 @@ const Home = () => {
       const magNow = magRef.current;
       const gpsNow = gpsRef.current;
       const roomNow = roomRef.current;
-
-      console.log("TICK", {
-        mag: { x: magNow.x, y: magNow.y, z: magNow.z },
-        gps: { lat: gpsNow.lat, lon: gpsNow.lon },
-        room: roomNow,
-      });
+      const floorNow = floorRef.current;
 
       if (
         inFlight.current ||
+        floorNow === null ||
         magNow.x == null ||
+        !roomNow || // meghs
         magNow.y == null ||
         magNow.z == null ||
         gpsNow.lat == null ||
@@ -122,13 +184,18 @@ const Home = () => {
 
       try {
         const payload = {
+          floor: floorNow,
           room: roomNow,
           mag: { x: magNow.x, y: magNow.y, z: magNow.z, ts: magNow.ts },
           gps: { lat: gpsNow.lat, lon: gpsNow.lon, ts: gpsNow.ts },
         };
 
+        console.log("TICK payload:", payload);
+
         const res = await fetch(
-          "https://sdc2.psgitech.ac.in/yuktanav/predict",
+          "https://sdc2.psgitech.ac.in/yuktanav/navigate", // meghs
+          //"http://10.157.205.13:8000/predict",
+          //"https://sdc2.psgitech.ac.in/yuktanav/predict",
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -136,32 +203,49 @@ const Home = () => {
           },
         );
 
-        const data = await res.json();
-        console.log("predict response:", res.status, data);
+        const text = await res.text();
+        console.log("predict response:", res.status, text);
 
-        if (
-          res.ok &&
-          typeof data?.x === "number" &&
-          typeof data?.y === "number"
-        ) {
-          const imgSrc = Image.resolveAssetSource(
-            require("../assets/ground_floor.png"),
-          );
+        if (!res.ok) return;
+
+        const data = JSON.parse(text);
+
+        if (data?.ok) {
+          // Use the image of the current floor to compute scaling
+          setPhase(data.phase); // meghs
+          setTargetFloor(data.target_floor); //meghs
+
+          const selected = FLOORS.find((f) => f.value === floorNow);
+          const imgSrc = Image.resolveAssetSource(selected.img);
+
           const ORIGINAL_W = imgSrc.width;
           const ORIGINAL_H = imgSrc.height;
 
-          // const scaleX = imgLayout.w / ORIGINAL_W;
-          // const scaleY = imgLayout.h / ORIGINAL_H;
-
-          const DISPLAY_W = 340;
-          const DISPLAY_H = 500;
-
           const scaleX = DISPLAY_W / ORIGINAL_W;
           const scaleY = DISPLAY_H / ORIGINAL_H;
-          const x = data.x * scaleX;
-          const y = data.y * scaleY;
 
-          setMarker({ x, y });
+          setMarker({
+            x: data.current[0] * scaleX, // meghs
+            y: data.current[1] * scaleY,
+          });
+          /* setMarker({
+            x: data.x * scaleX,
+            y: data.y * scaleY,
+          }); */
+
+          setGoal({
+            // meghs
+            x: data.goal[0] * scaleX,
+            y: data.goal[1] * scaleY,
+          });
+
+          const scaledPath = data.path.map(([x, y]) => ({
+            // meghs
+            x: x * scaleX,
+            y: y * scaleY,
+          }));
+
+          setPath(scaledPath); // meghs
         }
       } catch (e) {
         console.log("send failed", e);
@@ -173,19 +257,38 @@ const Home = () => {
     return () => clearInterval(id);
   }, [locPerm]);
 
-  const markerPx = useMemo(() => {
-    if (!marker || imgLayout.w === 0 || imgLayout.h === 0) return null;
-    return {
-      x: marker.x,
-      y: marker.y,
-    };
-  }, [marker, imgLayout]);
+  // --- Floor selection prompt ---
+  if (floor === null) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <View style={styles.floorPrompt}>
+          <Text style={styles.promptTitle}>
+            Which floor are you currently in?
+          </Text>
+
+          {FLOORS.map((f) => (
+            <Pressable
+              key={f.value}
+              style={styles.floorButton}
+              // onPress={() => setFloor(f.value)}
+              onPress={() => handleFloorChange(f.value)}
+            >
+              <Text style={styles.floorButtonText}>{f.label}</Text>
+            </Pressable>
+          ))}
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  const selectedFloor = FLOORS.find((f) => f.value === floor);
+  const floorImage = selectedFloor.img;
 
   return (
     <SafeAreaView style={styles.safeArea}>
       <View>
         {/* Search Bar */}
-        <View style={styles.searchBar}>
+        {/* {<View style={styles.searchBar}>
           <Pressable style={styles.iconbtn}>
             <Ionicons name="menu" size={22} color="#111827" />
           </Pressable>
@@ -198,6 +301,54 @@ const Home = () => {
               onChangeText={setRoom}
             />
           </View>
+        </View> */}
+
+        <View style={{ paddingHorizontal: 16, marginTop: 10 }}>
+          <Text style={{ fontWeight: "700", marginBottom: 6 }}>
+            Events Today ({today})
+          </Text>
+
+          {todaysEvents.length === 0 ? (
+            <Text style={{ color: "red" }}>No events scheduled for today.</Text>
+          ) : (
+            <View style={{ backgroundColor: "white", borderRadius: 12 }}>
+              <Picker
+                selectedValue={event}
+                onValueChange={(val) => {
+                  setRoom(val);
+                }}
+              >
+                {todaysEvents.map((e) => (
+                  <Picker.Item key={e.value} label={e.label} value={e.value} />
+                ))}
+              </Picker>
+            </View>
+          )}
+        </View>
+
+        {/* meghs */}
+        {phase === "stairs" && targetFloor !== null && (
+          <View style={styles.banner}>
+            <Text style={styles.bannerText}>
+              Go to Floor {targetFloor} using stairs
+            </Text>
+          </View>
+        )}
+
+        {/* Floor switcher */}
+        <View style={styles.floorSwitcher}>
+          {FLOORS.map((f) => (
+            <Pressable
+              key={f.value}
+              onPress={() => handleFloorChange(f.value)}
+              style={[
+                styles.floorTab,
+                floor === f.value && styles.floorTabActive,
+              ]}
+            >
+              <Text style={styles.floorTabText}>{f.label}</Text>
+            </Pressable>
+          ))}
         </View>
 
         {/* Map */}
@@ -210,63 +361,65 @@ const Home = () => {
                 zoomStep={0.5}
                 initialZoom={1}
               >
-                {/* Wrapper that defines overlay coordinate space */}
-                <View
-                  onLayout={(e) => {
-                    const { width, height } = e.nativeEvent.layout;
-                    setImgLayout({ w: width, h: height });
-                  }}
-                >
-                  <ReactNativeZoomableView
-                    maxZoom={3}
-                    minZoom={1}
-                    zoomStep={0.5}
-                    initialZoom={1}
-                  >
-                    <View style={{ width: 340, height: 500 }}>
-                      <Image
-                        source={require("../assets/ground_floor.png")}
-                        style={{ width: 340, height: 500 }}
-                        resizeMode="stretch" // IMPORTANT (see note below)
-                      />
+                {/* Coordinate space wrapper */}
+                <View style={{ width: DISPLAY_W, height: DISPLAY_H }}>
+                  <Image
+                    source={floorImage}
+                    style={{ width: DISPLAY_W, height: DISPLAY_H }}
+                    resizeMode="stretch"
+                  />
 
-                      {marker && (
+                  {/* PATH DRAWING meghs*/}
+                  {path &&
+                    path.map((point, index) => {
+                      if (index === path.length - 1) return null;
+                      const next = path[index + 1];
+                      return (
                         <View
+                          key={index}
                           pointerEvents="none"
                           style={{
                             position: "absolute",
-                            left: marker.x - 10,
-                            top: marker.y - 10,
-                            width: 20,
-                            height: 20,
-                            borderRadius: 10,
-                            backgroundColor: "red",
+                            left: Math.min(point.x, next.x),
+                            top: Math.min(point.y, next.y),
+                            width: Math.abs(point.x - next.x) || 3,
+                            height: Math.abs(point.y - next.y) || 3,
+                            backgroundColor: "blue",
                           }}
                         />
-                      )}
-                    </View>
-                  </ReactNativeZoomableView>
+                      );
+                    })}
 
-                  {/* Overlay marker */}
-                  {markerPx && (
-                    <Svg
-                      width={imgLayout.w}
-                      height={imgLayout.h}
-                      style={StyleSheet.absoluteFill}
-                    >
-                      <Circle
-                        cx={markerPx.x}
-                        cy={markerPx.y}
-                        r={10}
-                        fill="red"
-                      />
-                      <Circle
-                        cx={markerPx.x}
-                        cy={markerPx.y}
-                        r={18}
-                        fill="rgba(255,0,0,0.25)"
-                      />
-                    </Svg>
+                  {/* GOAL MARKER meghs */}
+                  {goal && (
+                    <View
+                      pointerEvents="none"
+                      style={{
+                        position: "absolute",
+                        left: goal.x - 10,
+                        top: goal.y - 10,
+                        width: 20,
+                        height: 20,
+                        borderRadius: 10,
+                        backgroundColor: "green",
+                      }}
+                    />
+                  )}
+
+                  {/* Marker: child of zoomed content -> stays aligned on zoom/pan */}
+                  {marker && (
+                    <View
+                      pointerEvents="none"
+                      style={{
+                        position: "absolute",
+                        left: marker.x - 10,
+                        top: marker.y - 10,
+                        width: 20,
+                        height: 20,
+                        borderRadius: 10,
+                        backgroundColor: "red",
+                      }}
+                    />
                   )}
                 </View>
               </ReactNativeZoomableView>
@@ -274,17 +427,25 @@ const Home = () => {
           </ScrollView>
         </View>
 
-        {/* Optional debug to see marker values */}
-        {/* <Text>{marker ? `Marker: ${marker.x.toFixed(2)}, ${marker.y.toFixed(2)}` : "No marker yet"}</Text> */}
+        {/* Debug */}
+        {/* <Text>{marker ? `Marker: ${marker.x.toFixed(1)}, ${marker.y.toFixed(1)}` : "No marker yet"}</Text> */}
       </View>
     </SafeAreaView>
   );
-};
-
-export default Home;
+}
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: "#CAD1DF" },
+
+  banner: {
+    // meghs
+    backgroundColor: "#facc15",
+    padding: 10,
+    marginTop: 10,
+    borderRadius: 10,
+    alignSelf: "center",
+  },
+  bannerText: { fontWeight: "600" }, // meghs
 
   searchBar: {
     backgroundColor: "#ffffff",
@@ -326,8 +487,51 @@ const styles = StyleSheet.create({
     marginTop: 16,
   },
 
-  mapImage: {
-    width: 340,
-    height: 500,
+  floorPrompt: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 16,
+  },
+  promptTitle: {
+    fontSize: 22,
+    fontWeight: "700",
+    marginBottom: 20,
+    textAlign: "center",
+  },
+  floorButton: {
+    backgroundColor: "#2563eb",
+    padding: 14,
+    width: "85%",
+    borderRadius: 14,
+    marginVertical: 8,
+  },
+  floorButtonText: {
+    color: "white",
+    fontSize: 18,
+    textAlign: "center",
+  },
+
+  floorSwitcher: {
+    flexDirection: "row",
+    justifyContent: "center",
+    marginTop: 10,
+    flexWrap: "wrap",
+    paddingHorizontal: 10,
+  },
+  floorTab: {
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    marginHorizontal: 4,
+    marginVertical: 4,
+    borderRadius: 10,
+    backgroundColor: "#e5e7eb",
+  },
+  floorTabActive: {
+    backgroundColor: "#2563eb",
+  },
+  floorTabText: {
+    fontSize: 12,
+    color: "#111827",
   },
 });
